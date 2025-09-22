@@ -76,14 +76,25 @@ class ApiService {
     return this.request<any[]>("/api/data-sources")
   }
 
-  async createDataSource(source: any) {
+  async createDataSource(source: {
+    name: string
+    type: "api" | "folder" | "sharepoint"
+    config: Record<string, any>
+  }) {
     return this.request<any>("/api/data-sources", {
       method: "POST",
       body: JSON.stringify(source),
     })
   }
 
-  async updateDataSource(id: string, source: any) {
+  async updateDataSource(
+    id: string,
+    source: {
+      name?: string
+      type?: "api" | "folder" | "sharepoint"
+      config?: Record<string, any>
+    },
+  ) {
     return this.request<any>(`/api/data-sources/${id}`, {
       method: "PUT",
       body: JSON.stringify(source),
@@ -120,12 +131,30 @@ class ApiService {
     return this.request<any[]>("/api/processing/jobs")
   }
 
-  async uploadFiles(files: FileList, targetSink: string) {
+  async uploadFiles(
+    files: FileList,
+    targetSink: string,
+    options?: {
+      validateSchema?: boolean
+      errorCorrection?: boolean
+      anomalyDetection?: boolean
+    },
+  ) {
     const formData = new FormData()
     Array.from(files).forEach((file) => formData.append("files", file))
     formData.append("target_sink", targetSink)
 
-    return this.request<any>("/api/processing/upload", {
+    if (options) {
+      Object.entries(options).forEach(([key, value]) => {
+        formData.append(key, value.toString())
+      })
+    }
+
+    return this.request<{
+      jobId: string
+      message: string
+      filesProcessed: number
+    }>("/api/processing/upload", {
       method: "POST",
       body: formData,
       headers: {}, // Remove Content-Type to let browser set it for FormData
@@ -159,9 +188,38 @@ class ApiService {
     return this.request<any[]>("/api/errors/rules")
   }
 
-  async createCorrectionRule(rule: any) {
-    return this.request<any>("/api/errors/rules", {
+  async createCorrectionRule(rule: {
+    name: string
+    description: string
+    condition: string
+    action: "replace" | "remove" | "flag"
+    replacement?: string
+    severity: "low" | "medium" | "high"
+    autoApply: boolean
+  }) {
+    return this.request<{
+      id: string
+      message: string
+    }>("/api/errors/rules", {
       method: "POST",
+      body: JSON.stringify(rule),
+    })
+  }
+
+  async updateCorrectionRule(
+    ruleId: string,
+    rule: {
+      name?: string
+      description?: string
+      condition?: string
+      action?: "replace" | "remove" | "flag"
+      replacement?: string
+      severity?: "low" | "medium" | "high"
+      autoApply?: boolean
+    },
+  ) {
+    return this.request<any>(`/api/errors/rules/${ruleId}`, {
+      method: "PUT",
       body: JSON.stringify(rule),
     })
   }
@@ -188,9 +246,40 @@ class ApiService {
     return this.request<any[]>("/api/anomalies/rules")
   }
 
-  async createAnomalyRule(rule: any) {
-    return this.request<any>("/api/anomalies/rules", {
+  async createAnomalyRule(rule: {
+    name: string
+    description: string
+    metric: string
+    threshold: number
+    operator: ">" | "<" | "=" | "!="
+    severity: "low" | "medium" | "high" | "critical"
+    alertChannels: string[]
+    autoResolve: boolean
+  }) {
+    return this.request<{
+      id: string
+      message: string
+    }>("/api/anomalies/rules", {
       method: "POST",
+      body: JSON.stringify(rule),
+    })
+  }
+
+  async updateAnomalyRule(
+    ruleId: string,
+    rule: {
+      name?: string
+      description?: string
+      metric?: string
+      threshold?: number
+      operator?: ">" | "<" | "=" | "!="
+      severity?: "low" | "medium" | "high" | "critical"
+      alertChannels?: string[]
+      autoResolve?: boolean
+    },
+  ) {
+    return this.request<any>(`/api/anomalies/rules/${ruleId}`, {
+      method: "PUT",
       body: JSON.stringify(rule),
     })
   }

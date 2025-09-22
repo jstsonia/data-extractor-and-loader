@@ -1,12 +1,13 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import {
@@ -19,6 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   Activity,
   AlertTriangle,
@@ -35,7 +37,17 @@ import {
   Plus,
   Edit,
   Trash2,
+  ChevronDown,
+  Server,
+  FolderOpen,
+  Share2,
+  Database,
 } from "lucide-react"
+import { useAnomalies, useAnomalyRules } from "@/hooks/use-api"
+import { apiService } from "@/lib/api"
+import { toast } from "@/hooks/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"
+import { mutate } from "swr"
 
 interface Anomaly {
   id: string
@@ -124,111 +136,67 @@ const getChannelIcon = (channel: string) => {
   }
 }
 
-export function AnomalyDetection() {
-  const [anomalies, setAnomalies] = useState<Anomaly[]>([
-    {
-      id: "anom-001",
-      type: "volume",
-      severity: "critical",
-      title: "Unusual data volume spike",
-      description: "Data ingestion rate is 300% higher than normal baseline",
-      source: "Customer API",
-      detectedAt: "5 minutes ago",
-      value: "15,420 records/hour",
-      expectedRange: "3,000-5,000 records/hour",
-      confidence: 95,
-      status: "active",
-      alertsSent: 3,
-    },
-    {
-      id: "anom-002",
-      type: "pattern",
-      severity: "high",
-      title: "Irregular data pattern detected",
-      description: "Unexpected data structure in JSON payload",
-      source: "SharePoint Reports",
-      detectedAt: "12 minutes ago",
-      value: "Schema deviation",
-      expectedRange: "Standard schema",
-      confidence: 87,
-      status: "acknowledged",
-      alertsSent: 1,
-    },
-    {
-      id: "anom-003",
-      type: "outlier",
-      severity: "medium",
-      title: "Statistical outlier in numeric field",
-      description: "Values in 'amount' field exceed 3 standard deviations",
-      source: "Sales Data",
-      detectedAt: "25 minutes ago",
-      value: "$1,250,000",
-      expectedRange: "$100-$50,000",
-      confidence: 78,
-      status: "resolved",
-      alertsSent: 2,
-    },
-    {
-      id: "anom-004",
-      type: "trend",
-      severity: "low",
-      title: "Gradual decline in data quality",
-      description: "Error rate has been slowly increasing over the past week",
-      source: "File Processing",
-      detectedAt: "1 hour ago",
-      value: "8.5% error rate",
-      expectedRange: "2-5% error rate",
-      confidence: 65,
-      status: "active",
-      alertsSent: 0,
-    },
-  ])
+const getSourceIcon = (source: string) => {
+  if (source.toLowerCase().includes("api")) return Server
+  if (source.toLowerCase().includes("sharepoint")) return Share2
+  if (source.toLowerCase().includes("folder") || source.toLowerCase().includes("file")) return FolderOpen
+  if (source.toLowerCase().includes("sales") || source.toLowerCase().includes("data")) return Database
+  return Database
+}
 
-  const [alertRules, setAlertRules] = useState<AlertRule[]>([
-    {
-      id: "rule-001",
-      name: "High Volume Alert",
-      type: "volume",
-      condition: "Records per hour > 10,000",
-      threshold: "10,000 records/hour",
-      isActive: true,
-      channels: ["email", "slack"],
-      triggeredCount: 15,
-      lastTriggered: "5 minutes ago",
-    },
-    {
-      id: "rule-002",
-      name: "Schema Change Detection",
-      type: "pattern",
-      condition: "JSON schema deviation > 20%",
-      threshold: "20% deviation",
-      isActive: true,
-      channels: ["webhook"],
-      triggeredCount: 3,
-      lastTriggered: "12 minutes ago",
-    },
-    {
-      id: "rule-003",
-      name: "Statistical Outlier Alert",
-      type: "outlier",
-      condition: "Value > 3 standard deviations",
-      threshold: "3σ",
-      isActive: false,
-      channels: ["email"],
-      triggeredCount: 8,
-      lastTriggered: "2 days ago",
-    },
-  ])
+export function AnomalyDetection() {
+  const { data: anomaliesResponse, error: anomaliesError, isLoading: anomaliesLoading } = useAnomalies()
+  const { data: rulesResponse, error: rulesError, isLoading: rulesLoading } = useAnomalyRules()
+
+  const anomalies = anomaliesResponse?.data || []
+  const alertRules = rulesResponse?.data || []
 
   const [isRuleDialogOpen, setIsRuleDialogOpen] = useState(false)
   const [selectedAnomaly, setSelectedAnomaly] = useState<Anomaly | null>(null)
 
+  const handleAcknowledgeAnomaly = async (anomalyId: string) => {
+    try {
+      await apiService.acknowledgeAnomaly(anomalyId)
+      mutate("/api/anomalies") // Refresh anomalies list
+      toast({
+        title: "Anomaly Acknowledged",
+        description: "The anomaly has been acknowledged.",
+      })
+    } catch (error) {
+      toast({
+        title: "Action Failed",
+        description: "Failed to acknowledge anomaly. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
   const anomalyStats = {
     total: anomalies.length,
-    active: anomalies.filter((a) => a.status === "active").length,
-    critical: anomalies.filter((a) => a.severity === "critical").length,
-    resolved: anomalies.filter((a) => a.status === "resolved").length,
+    active: anomalies.filter((a: any) => a.status === "active").length,
+    critical: anomalies.filter((a: any) => a.severity === "critical").length,
+    resolved: anomalies.filter((a: any) => a.status === "resolved").length,
   }
+
+  const groupedAnomalies = anomalies.reduce(
+    (groups: any, anomaly: any) => {
+      const source = anomaly.source
+      if (!groups[source]) {
+        groups[source] = []
+      }
+      groups[source].push(anomaly)
+      return groups
+    },
+    {} as Record<string, Anomaly[]>,
+  )
+
+  const sourceStats = Object.entries(groupedAnomalies).map(([source, sourceAnomalies]: [string, any]) => ({
+    source,
+    total: sourceAnomalies.length,
+    active: sourceAnomalies.filter((a: any) => a.status === "active").length,
+    critical: sourceAnomalies.filter((a: any) => a.severity === "critical").length,
+    resolved: sourceAnomalies.filter((a: any) => a.status === "resolved").length,
+  }))
 
   return (
     <div className="space-y-6">
@@ -312,6 +280,7 @@ export function AnomalyDetection() {
       <Tabs defaultValue="anomalies" className="space-y-6">
         <TabsList>
           <TabsTrigger value="anomalies">Anomalies</TabsTrigger>
+          <TabsTrigger value="sources">By Data Source</TabsTrigger>
           <TabsTrigger value="rules">Alert Rules</TabsTrigger>
           <TabsTrigger value="settings">Settings</TabsTrigger>
         </TabsList>
@@ -323,79 +292,254 @@ export function AnomalyDetection() {
               <CardDescription>Recent anomalies detected in your data pipeline</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Anomaly</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Severity</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Value</TableHead>
-                    <TableHead>Confidence</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {anomalies.map((anomaly) => {
-                    const AnomalyIcon = getAnomalyIcon(anomaly.type)
-                    return (
-                      <TableRow key={anomaly.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <AnomalyIcon className="h-4 w-4 text-primary" />
-                            <div>
-                              <div className="font-medium text-foreground">{anomaly.title}</div>
-                              <div className="text-sm text-muted-foreground">{anomaly.description}</div>
+              {anomaliesLoading ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-4 w-4" />
+                        <div>
+                          <Skeleton className="h-4 w-32 mb-1" />
+                          <Skeleton className="h-3 w-48" />
+                        </div>
+                      </div>
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-4 w-24" />
+                      <Skeleton className="h-4 w-12" />
+                      <Skeleton className="h-5 w-16" />
+                      <div className="flex gap-1">
+                        <Skeleton className="h-8 w-8" />
+                        <Skeleton className="h-8 w-8" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : anomaliesError ? (
+                <div className="text-center py-8">
+                  <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Failed to Load Anomalies</h3>
+                  <p className="text-muted-foreground">Unable to fetch anomaly data. Please try again.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Anomaly</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Value</TableHead>
+                      <TableHead>Confidence</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {anomalies.map((anomaly: any) => {
+                      const AnomalyIcon = getAnomalyIcon(anomaly.type)
+                      return (
+                        <TableRow key={anomaly.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <AnomalyIcon className="h-4 w-4 text-primary" />
+                              <div>
+                                <div className="font-medium text-foreground">{anomaly.title}</div>
+                                <div className="text-sm text-muted-foreground">{anomaly.description}</div>
+                              </div>
                             </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize">
-                            {anomaly.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{getSeverityBadge(anomaly.severity)}</TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium">{anomaly.source}</div>
-                            <div className="text-muted-foreground">{anomaly.detectedAt}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium">{anomaly.value}</div>
-                            <div className="text-muted-foreground">Expected: {anomaly.expectedRange}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm font-medium">{anomaly.confidence}%</div>
-                            <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
-                              <div className="h-full bg-primary" style={{ width: `${anomaly.confidence}%` }} />
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="capitalize">
+                              {anomaly.type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{getSeverityBadge(anomaly.severity)}</TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <div className="font-medium">{anomaly.source}</div>
+                              <div className="text-muted-foreground">{anomaly.detectedAt}</div>
                             </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{getStatusBadge(anomaly.status)}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button variant="outline" size="sm" onClick={() => setSelectedAnomaly(anomaly)}>
-                              <Eye className="h-3 w-3" />
-                            </Button>
-                            {anomaly.status === "active" && (
-                              <Button variant="outline" size="sm">
-                                <Bell className="h-3 w-3" />
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <div className="font-medium">{anomaly.value}</div>
+                              <div className="text-muted-foreground">Expected: {anomaly.expectedRange}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <div className="text-sm font-medium">{anomaly.confidence}%</div>
+                              <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                                <div className="h-full bg-primary" style={{ width: `${anomaly.confidence}%` }} />
+                              </div>
+                            </div>
+                          </TableCell>
+                          <TableCell>{getStatusBadge(anomaly.status)}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button variant="outline" size="sm" onClick={() => setSelectedAnomaly(anomaly)}>
+                                <Eye className="h-3 w-3" />
                               </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
+                              {anomaly.status === "active" && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => handleAcknowledgeAnomaly(anomaly.id)}
+                                >
+                                  <Bell className="h-3 w-3" />
+                                </Button>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="sources" className="space-y-6">
+          {/* Data Source Overview */}
+          <div className="grid gap-4 md:grid-cols-3">
+            {sourceStats.map((stat) => {
+              const SourceIcon = getSourceIcon(stat.source)
+              return (
+                <Card key={stat.source}>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">{stat.source}</CardTitle>
+                    <SourceIcon className="h-5 w-5 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-foreground">{stat.total}</div>
+                    <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                      <span className="text-destructive">{stat.active} active</span>
+                      <span className="text-orange-500">{stat.critical} critical</span>
+                      <span className="text-secondary">{stat.resolved} resolved</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+
+          {/* Grouped Anomaly Lists */}
+          <div className="space-y-4">
+            {Object.entries(groupedAnomalies).map(([source, sourceAnomalies]: [string, any]) => {
+              const SourceIcon = getSourceIcon(source)
+              const activeAnomalies = sourceAnomalies.filter((a: any) => a.status === "active").length
+              const criticalAnomalies = sourceAnomalies.filter((a: any) => a.severity === "critical").length
+
+              return (
+                <Card key={source}>
+                  <Collapsible defaultOpen={activeAnomalies > 0 || criticalAnomalies > 0}>
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <SourceIcon className="h-5 w-5 text-primary" />
+                            <div>
+                              <CardTitle className="text-lg">{source}</CardTitle>
+                              <CardDescription>
+                                {sourceAnomalies.length} anomalies • {activeAnomalies} active • {criticalAnomalies}{" "}
+                                critical
+                              </CardDescription>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {criticalAnomalies > 0 && (
+                              <Badge className="bg-destructive text-destructive-foreground">
+                                {criticalAnomalies} Critical
+                              </Badge>
+                            )}
+                            {activeAnomalies > 0 && (
+                              <Badge className="bg-orange-500 text-white">{activeAnomalies} Active</Badge>
+                            )}
+                            <ChevronDown className="h-4 w-4 transition-transform duration-200" />
+                          </div>
+                        </div>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <CardContent className="pt-0">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Anomaly</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Severity</TableHead>
+                              <TableHead>Value</TableHead>
+                              <TableHead>Confidence</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {sourceAnomalies.map((anomaly: any) => {
+                              const AnomalyIcon = getAnomalyIcon(anomaly.type)
+                              return (
+                                <TableRow key={anomaly.id}>
+                                  <TableCell>
+                                    <div className="flex items-center gap-3">
+                                      <AnomalyIcon className="h-4 w-4 text-primary" />
+                                      <div>
+                                        <div className="font-medium text-foreground">{anomaly.title}</div>
+                                        <div className="text-sm text-muted-foreground">{anomaly.description}</div>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className="capitalize">
+                                      {anomaly.type}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>{getSeverityBadge(anomaly.severity)}</TableCell>
+                                  <TableCell>
+                                    <div className="text-sm">
+                                      <div className="font-medium">{anomaly.value}</div>
+                                      <div className="text-muted-foreground">Expected: {anomaly.expectedRange}</div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <div className="text-sm font-medium">{anomaly.confidence}%</div>
+                                      <div className="w-16 h-2 bg-muted rounded-full overflow-hidden">
+                                        <div
+                                          className="h-full bg-primary"
+                                          style={{ width: `${anomaly.confidence}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>{getStatusBadge(anomaly.status)}</TableCell>
+                                  <TableCell>
+                                    <div className="flex gap-1">
+                                      <Button variant="outline" size="sm" onClick={() => setSelectedAnomaly(anomaly)}>
+                                        <Eye className="h-3 w-3" />
+                                      </Button>
+                                      {anomaly.status === "active" && (
+                                        <Button variant="outline" size="sm">
+                                          <Bell className="h-3 w-3" />
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </Card>
+              )
+            })}
+          </div>
         </TabsContent>
 
         <TabsContent value="rules" className="space-y-6">
@@ -405,74 +549,99 @@ export function AnomalyDetection() {
               <CardDescription>Configure conditions for automatic anomaly detection and alerting</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Rule Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Condition</TableHead>
-                    <TableHead>Channels</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Triggered</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {alertRules.map((rule) => (
-                    <TableRow key={rule.id}>
-                      <TableCell className="font-medium">{rule.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {rule.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-xs">
-                        <div className="text-sm">
-                          <div className="font-medium">{rule.condition}</div>
-                          <div className="text-muted-foreground">Threshold: {rule.threshold}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          {rule.channels.map((channel) => {
-                            const ChannelIcon = getChannelIcon(channel)
-                            return (
-                              <div key={channel} className="flex items-center gap-1">
-                                <ChannelIcon className="h-3 w-3" />
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {rule.isActive ? (
-                          <Badge className="bg-secondary text-secondary-foreground">Active</Badge>
-                        ) : (
-                          <Badge variant="outline">Inactive</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          <div className="font-medium">{rule.triggeredCount} times</div>
-                          {rule.lastTriggered && (
-                            <div className="text-muted-foreground">Last: {rule.lastTriggered}</div>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="outline" size="sm">
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button variant="outline" size="sm">
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+              {rulesLoading ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-4 w-20" />
+                      <div className="flex gap-1">
+                        <Skeleton className="h-8 w-8" />
+                        <Skeleton className="h-8 w-8" />
+                      </div>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              ) : rulesError ? (
+                <div className="text-center py-8">
+                  <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Failed to Load Rules</h3>
+                  <p className="text-muted-foreground">Unable to fetch alert rules. Please try again.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Rule Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Condition</TableHead>
+                      <TableHead>Channels</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Triggered</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {alertRules.map((rule: any) => (
+                      <TableRow key={rule.id}>
+                        <TableCell className="font-medium">{rule.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {rule.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-xs">
+                          <div className="text-sm">
+                            <div className="font-medium">{rule.condition}</div>
+                            <div className="text-muted-foreground">Threshold: {rule.threshold}</div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            {rule.channels?.map((channel: string) => {
+                              const ChannelIcon = getChannelIcon(channel)
+                              return (
+                                <div key={channel} className="flex items-center gap-1">
+                                  <ChannelIcon className="h-3 w-3" />
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {rule.isActive ? (
+                            <Badge className="bg-secondary text-secondary-foreground">Active</Badge>
+                          ) : (
+                            <Badge variant="outline">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            <div className="font-medium">{rule.triggeredCount} times</div>
+                            {rule.lastTriggered && (
+                              <div className="text-muted-foreground">Last: {rule.lastTriggered}</div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="outline" size="sm">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button variant="outline" size="sm">
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -559,7 +728,7 @@ export function AnomalyDetection() {
               <DialogTitle>Anomaly Details</DialogTitle>
               <DialogDescription>Detailed information about the detected anomaly</DialogDescription>
             </DialogHeader>
-            <AnomalyDetailView anomaly={selectedAnomaly} />
+            <AnomalyDetailView anomaly={selectedAnomaly} onAcknowledge={handleAcknowledgeAnomaly} />
           </DialogContent>
         </Dialog>
       )}
@@ -568,66 +737,201 @@ export function AnomalyDetection() {
 }
 
 function AlertRuleForm({ onClose }: { onClose: () => void }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    metric: "",
+    threshold: 0,
+    operator: ">" as ">" | "<" | "=" | "!=",
+    severity: "medium" as "low" | "medium" | "high" | "critical",
+    alertChannels: [] as string[],
+    autoResolve: false,
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name || !formData.metric || !formData.threshold) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      await apiService.createAnomalyRule(formData)
+      mutate("/api/anomalies/rules") // Refresh rules list
+      toast({
+        title: "Rule Created",
+        description: "Alert rule has been created successfully.",
+      })
+      onClose()
+    } catch (error) {
+      toast({
+        title: "Creation Failed",
+        description: "Failed to create alert rule. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const toggleChannel = (channel: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      alertChannels: prev.alertChannels.includes(channel)
+        ? prev.alertChannels.filter((c) => c !== channel)
+        : [...prev.alertChannels, channel],
+    }))
+  }
+
   return (
-    <div className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-4">
         <div>
           <Label htmlFor="rule-name">Rule Name</Label>
-          <Input id="rule-name" placeholder="e.g., High Volume Alert" />
+          <Input
+            id="rule-name"
+            placeholder="e.g., High Volume Alert"
+            value={formData.name}
+            onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+            required
+          />
         </div>
         <div>
-          <Label htmlFor="rule-type">Anomaly Type</Label>
-          <Select>
+          <Label htmlFor="rule-description">Description</Label>
+          <Input
+            id="rule-description"
+            placeholder="Brief description of this alert rule"
+            value={formData.description}
+            onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+          />
+        </div>
+        <div>
+          <Label htmlFor="metric">Metric</Label>
+          <Input
+            id="metric"
+            placeholder="e.g., records_per_hour, error_rate"
+            value={formData.metric}
+            onChange={(e) => setFormData((prev) => ({ ...prev, metric: e.target.value }))}
+            required
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="operator">Operator</Label>
+            <Select
+              value={formData.operator}
+              onValueChange={(value: any) => setFormData((prev) => ({ ...prev, operator: value }))}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value=">">Greater than</SelectItem>
+                <SelectItem value="<">Less than</SelectItem>
+                <SelectItem value="=">Equal to</SelectItem>
+                <SelectItem value="!=">Not equal to</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label htmlFor="threshold">Threshold</Label>
+            <Input
+              id="threshold"
+              type="number"
+              placeholder="e.g., 10000"
+              value={formData.threshold}
+              onChange={(e) => setFormData((prev) => ({ ...prev, threshold: Number(e.target.value) }))}
+              required
+            />
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="severity">Severity</Label>
+          <Select
+            value={formData.severity}
+            onValueChange={(value: any) => setFormData((prev) => ({ ...prev, severity: value }))}
+          >
             <SelectTrigger>
-              <SelectValue placeholder="Select anomaly type" />
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="volume">Volume</SelectItem>
-              <SelectItem value="pattern">Pattern</SelectItem>
-              <SelectItem value="outlier">Outlier</SelectItem>
-              <SelectItem value="trend">Trend</SelectItem>
-              <SelectItem value="threshold">Threshold</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="critical">Critical</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div>
-          <Label htmlFor="condition">Condition</Label>
-          <Textarea id="condition" placeholder="Define the condition that triggers this alert" />
-        </div>
-        <div>
-          <Label htmlFor="threshold">Threshold</Label>
-          <Input id="threshold" placeholder="e.g., 10,000 records/hour" />
-        </div>
-        <div>
-          <Label htmlFor="channels">Alert Channels</Label>
+          <Label>Alert Channels</Label>
           <div className="flex gap-2 mt-2">
-            <Button variant="outline" size="sm">
+            <Button
+              type="button"
+              variant={formData.alertChannels.includes("email") ? "default" : "outline"}
+              size="sm"
+              onClick={() => toggleChannel("email")}
+            >
               <Mail className="mr-2 h-3 w-3" />
               Email
             </Button>
-            <Button variant="outline" size="sm">
+            <Button
+              type="button"
+              variant={formData.alertChannels.includes("slack") ? "default" : "outline"}
+              size="sm"
+              onClick={() => toggleChannel("slack")}
+            >
               <Slack className="mr-2 h-3 w-3" />
               Slack
             </Button>
-            <Button variant="outline" size="sm">
+            <Button
+              type="button"
+              variant={formData.alertChannels.includes("webhook") ? "default" : "outline"}
+              size="sm"
+              onClick={() => toggleChannel("webhook")}
+            >
               <Webhook className="mr-2 h-3 w-3" />
               Webhook
             </Button>
           </div>
         </div>
+        <div className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            id="auto-resolve"
+            checked={formData.autoResolve}
+            onChange={(e) => setFormData((prev) => ({ ...prev, autoResolve: e.target.checked }))}
+          />
+          <Label htmlFor="auto-resolve" className="text-sm">
+            Auto-resolve when conditions return to normal
+          </Label>
+        </div>
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={onClose}>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
           Cancel
         </Button>
-        <Button>Create Rule</Button>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Creating..." : "Create Rule"}
+        </Button>
       </div>
-    </div>
+    </form>
   )
 }
 
-function AnomalyDetailView({ anomaly }: { anomaly: Anomaly }) {
+function AnomalyDetailView({
+  anomaly,
+  onAcknowledge,
+}: {
+  anomaly: Anomaly
+  onAcknowledge: (anomalyId: string) => void
+}) {
   const AnomalyIcon = getAnomalyIcon(anomaly.type)
 
   return (
@@ -673,7 +977,7 @@ function AnomalyDetailView({ anomaly }: { anomaly: Anomaly }) {
           <Bell className="mr-2 h-4 w-4" />
           Send Alert
         </Button>
-        <Button>Acknowledge</Button>
+        <Button onClick={() => onAcknowledge(anomaly.id)}>Acknowledge</Button>
       </div>
     </div>
   )

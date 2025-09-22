@@ -402,6 +402,11 @@ function FileUploadForm({ onClose }: { onClose: () => void }) {
   const [targetSink, setTargetSink] = useState("")
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [processingOptions, setProcessingOptions] = useState({
+    validateSchema: true,
+    errorCorrection: true,
+    anomalyDetection: false,
+  })
 
   const handleUpload = async () => {
     if (!selectedFiles || !targetSink) {
@@ -415,11 +420,11 @@ function FileUploadForm({ onClose }: { onClose: () => void }) {
 
     setIsUploading(true)
     try {
-      await apiService.uploadFiles(selectedFiles, targetSink)
+      const result = await apiService.uploadFiles(selectedFiles, targetSink, processingOptions)
       mutate("/api/processing/jobs") // Refresh jobs list
       toast({
         title: "Upload Started",
-        description: "Files have been uploaded and processing has begun.",
+        description: `Files uploaded successfully. Job ID: ${result.data.jobId}`,
       })
       onClose()
     } catch (error) {
@@ -445,14 +450,6 @@ function FileUploadForm({ onClose }: { onClose: () => void }) {
           <Upload className="mr-2 h-4 w-4" />
           Select Files
         </Button>
-        <input
-          id="file-input"
-          type="file"
-          multiple
-          accept=".csv,.json,.xlsx,.xls,.parquet,.zip"
-          className="hidden"
-          onChange={(e) => setSelectedFiles(e.target.files)}
-        />
         {selectedFiles && (
           <div className="mt-4 text-sm text-muted-foreground">{selectedFiles.length} file(s) selected</div>
         )}
@@ -465,7 +462,47 @@ function FileUploadForm({ onClose }: { onClose: () => void }) {
           placeholder="Select destination for processed data"
           value={targetSink}
           onChange={(e) => setTargetSink(e.target.value)}
+          required
         />
+      </div>
+
+      <div className="space-y-3">
+        <Label>Processing Options</Label>
+        <div className="space-y-2">
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="validate-schema"
+              checked={processingOptions.validateSchema}
+              onChange={(e) => setProcessingOptions((prev) => ({ ...prev, validateSchema: e.target.checked }))}
+            />
+            <Label htmlFor="validate-schema" className="text-sm">
+              Validate data schema
+            </Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="error-correction"
+              checked={processingOptions.errorCorrection}
+              onChange={(e) => setProcessingOptions((prev) => ({ ...prev, errorCorrection: e.target.checked }))}
+            />
+            <Label htmlFor="error-correction" className="text-sm">
+              Apply error correction
+            </Label>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="anomaly-detection"
+              checked={processingOptions.anomalyDetection}
+              onChange={(e) => setProcessingOptions((prev) => ({ ...prev, anomalyDetection: e.target.checked }))}
+            />
+            <Label htmlFor="anomaly-detection" className="text-sm">
+              Enable anomaly detection
+            </Label>
+          </div>
+        </div>
       </div>
 
       <div className="flex justify-end gap-3">

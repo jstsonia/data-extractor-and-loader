@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -18,6 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import {
   AlertTriangle,
   CheckCircle,
@@ -32,7 +35,16 @@ import {
   Bug,
   Database,
   FileX,
+  ChevronDown,
+  Server,
+  FolderOpen,
+  Share2,
 } from "lucide-react"
+import { useDataErrors, useCorrectionRules } from "@/hooks/use-api"
+import { apiService } from "@/lib/api"
+import { toast } from "@/hooks/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"
+import { mutate } from "swr"
 
 interface DataError {
   id: string
@@ -61,101 +73,48 @@ interface CorrectionRule {
 }
 
 export function ErrorDetection() {
-  const [errors, setErrors] = useState<DataError[]>([
-    {
-      id: "err-001",
-      type: "validation",
-      severity: "critical",
-      message: "Invalid email format",
-      description: "Email addresses do not match expected format pattern",
-      source: "Customer API",
-      fileName: "customer_records.json",
-      rowNumber: 1247,
-      columnName: "email",
-      detectedAt: "2 minutes ago",
-      status: "open",
-      suggestedFix: "Apply email validation regex pattern",
-      affectedRecords: 23,
-    },
-    {
-      id: "err-002",
-      type: "missing",
-      severity: "high",
-      message: "Required field missing",
-      description: "Customer ID field is empty for multiple records",
-      source: "SharePoint",
-      fileName: "customer_data.xlsx",
-      rowNumber: 892,
-      columnName: "customer_id",
-      detectedAt: "5 minutes ago",
-      status: "corrected",
-      suggestedFix: "Generate sequential IDs for missing values",
-      affectedRecords: 15,
-    },
-    {
-      id: "err-003",
-      type: "duplicate",
-      severity: "medium",
-      message: "Duplicate records found",
-      description: "Multiple records with identical primary keys detected",
-      source: "File Folder",
-      fileName: "sales_data.csv",
-      rowNumber: 3421,
-      columnName: "order_id",
-      detectedAt: "12 minutes ago",
-      status: "open",
-      suggestedFix: "Merge duplicate records or add unique suffix",
-      affectedRecords: 8,
-    },
-    {
-      id: "err-004",
-      type: "format",
-      severity: "low",
-      message: "Date format inconsistency",
-      description: "Mixed date formats found in the same column",
-      source: "API",
-      fileName: "transaction_log.json",
-      rowNumber: 567,
-      columnName: "created_date",
-      detectedAt: "18 minutes ago",
-      status: "ignored",
-      suggestedFix: "Standardize to ISO 8601 format",
-      affectedRecords: 45,
-    },
-  ])
+  const { data: errorsResponse, error: errorsError, isLoading: errorsLoading } = useDataErrors()
+  const { data: rulesResponse, error: rulesError, isLoading: rulesLoading } = useCorrectionRules()
 
-  const [correctionRules, setCorrectionRules] = useState<CorrectionRule[]>([
-    {
-      id: "rule-001",
-      name: "Email Format Correction",
-      type: "validate",
-      condition: "email field contains invalid format",
-      action: "Apply regex validation and flag invalid entries",
-      isActive: true,
-      appliedCount: 156,
-    },
-    {
-      id: "rule-002",
-      name: "Missing ID Generation",
-      type: "transform",
-      condition: "customer_id is null or empty",
-      action: "Generate sequential ID starting from max existing ID",
-      isActive: true,
-      appliedCount: 89,
-    },
-    {
-      id: "rule-003",
-      name: "Date Standardization",
-      type: "transform",
-      condition: "date format is not ISO 8601",
-      action: "Convert to YYYY-MM-DD format",
-      isActive: false,
-      appliedCount: 0,
-    },
-  ])
+  const errors = errorsResponse?.data || []
+  const correctionRules = rulesResponse?.data || []
 
   const [selectedError, setSelectedError] = useState<DataError | null>(null)
   const [isRuleDialogOpen, setIsRuleDialogOpen] = useState(false)
+
+  const handleIgnoreError = async (errorId: string) => {
+    try {
+      await apiService.ignoreError(errorId)
+      mutate("/api/errors") // Refresh errors list
+      toast({
+        title: "Error Ignored",
+        description: "The error has been marked as ignored.",
+      })
+    } catch (error) {
+      toast({
+        title: "Action Failed",
+        description: "Failed to ignore error. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleApplyCorrectionRule = async (ruleId: string, errorIds: string[]) => {
+    try {
+      await apiService.applyCorrectionRule(ruleId, errorIds)
+      mutate("/api/errors") // Refresh errors list
+      toast({
+        title: "Rule Applied",
+        description: "Correction rule has been applied successfully.",
+      })
+    } catch (error) {
+      toast({
+        title: "Application Failed",
+        description: "Failed to apply correction rule. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
 
   const getErrorIcon = (type: string) => {
     switch (type) {
@@ -206,9 +165,36 @@ export function ErrorDetection() {
 
   const errorStats = {
     total: errors.length,
-    open: errors.filter((e) => e.status === "open").length,
-    resolved: errors.filter((e) => e.status === "resolved").length,
-    critical: errors.filter((e) => e.severity === "critical").length,
+    open: errors.filter((e: any) => e.status === "open").length,
+    resolved: errors.filter((e: any) => e.status === "resolved").length,
+    critical: errors.filter((e: any) => e.severity === "critical").length,
+  }
+
+  const groupedErrors = errors.reduce(
+    (groups: any, error: any) => {
+      const source = error.source
+      if (!groups[source]) {
+        groups[source] = []
+      }
+      groups[source].push(error)
+      return groups
+    },
+    {} as Record<string, DataError[]>,
+  )
+
+  const sourceStats = Object.entries(groupedErrors).map(([source, sourceErrors]: [string, any]) => ({
+    source,
+    total: sourceErrors.length,
+    open: sourceErrors.filter((e: any) => e.status === "open").length,
+    critical: sourceErrors.filter((e: any) => e.severity === "critical").length,
+    resolved: sourceErrors.filter((e: any) => e.status === "resolved").length,
+  }))
+
+  const getSourceIcon = (source: string) => {
+    if (source.toLowerCase().includes("api")) return Server
+    if (source.toLowerCase().includes("sharepoint")) return Share2
+    if (source.toLowerCase().includes("folder")) return FolderOpen
+    return Database
   }
 
   return (
@@ -293,6 +279,7 @@ export function ErrorDetection() {
       <Tabs defaultValue="errors" className="space-y-6">
         <TabsList>
           <TabsTrigger value="errors">Error Log</TabsTrigger>
+          <TabsTrigger value="sources">By Data Source</TabsTrigger>
           <TabsTrigger value="rules">Correction Rules</TabsTrigger>
           <TabsTrigger value="analytics">Analytics</TabsTrigger>
         </TabsList>
@@ -377,79 +364,247 @@ export function ErrorDetection() {
               <CardDescription>Detected data quality issues and their resolution status</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Error</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Severity</TableHead>
-                    <TableHead>Source</TableHead>
-                    <TableHead>Location</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Affected</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {errors.map((error) => {
-                    const ErrorIcon = getErrorIcon(error.type)
-                    return (
-                      <TableRow key={error.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <ErrorIcon className="h-4 w-4 text-destructive" />
-                            <div>
-                              <div className="font-medium text-foreground">{error.message}</div>
-                              <div className="text-sm text-muted-foreground">{error.description}</div>
+              {errorsLoading ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="h-4 w-4" />
+                        <div>
+                          <Skeleton className="h-4 w-32 mb-1" />
+                          <Skeleton className="h-3 w-24" />
+                        </div>
+                      </div>
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-4 w-20" />
+                      <Skeleton className="h-4 w-16" />
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-4 w-12" />
+                      <div className="flex gap-1">
+                        <Skeleton className="h-8 w-8" />
+                        <Skeleton className="h-8 w-8" />
+                        <Skeleton className="h-8 w-8" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : errorsError ? (
+                <div className="text-center py-8">
+                  <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Failed to Load Errors</h3>
+                  <p className="text-muted-foreground">Unable to fetch error data. Please try again.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Error</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Severity</TableHead>
+                      <TableHead>Source</TableHead>
+                      <TableHead>Location</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Affected</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {errors.map((error: any) => {
+                      const ErrorIcon = getErrorIcon(error.type)
+                      return (
+                        <TableRow key={error.id}>
+                          <TableCell>
+                            <div className="flex items-center gap-3">
+                              <ErrorIcon className="h-4 w-4 text-destructive" />
+                              <div>
+                                <div className="font-medium text-foreground">{error.message}</div>
+                                <div className="text-sm text-muted-foreground">{error.description}</div>
+                              </div>
                             </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="capitalize">
-                            {error.type}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{getSeverityBadge(error.severity)}</TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <div className="font-medium">{error.source}</div>
-                            <div className="text-muted-foreground">{error.fileName}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            {error.rowNumber && <div>Row: {error.rowNumber}</div>}
-                            {error.columnName && <div className="text-muted-foreground">{error.columnName}</div>}
-                          </div>
-                        </TableCell>
-                        <TableCell>{getStatusBadge(error.status)}</TableCell>
-                        <TableCell>
-                          <span className="text-sm font-medium">{error.affectedRecords} records</span>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-1">
-                            <Button variant="outline" size="sm" onClick={() => setSelectedError(error)}>
-                              <Eye className="h-3 w-3" />
-                            </Button>
-                            {error.status === "open" && (
-                              <>
-                                <Button variant="outline" size="sm">
-                                  <Edit className="h-3 w-3" />
-                                </Button>
-                                <Button variant="outline" size="sm">
-                                  <RotateCcw className="h-3 w-3" />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    )
-                  })}
-                </TableBody>
-              </Table>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="capitalize">
+                              {error.type}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{getSeverityBadge(error.severity)}</TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              <div className="font-medium">{error.source}</div>
+                              <div className="text-muted-foreground">{error.fileName}</div>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="text-sm">
+                              {error.rowNumber && <div>Row: {error.rowNumber}</div>}
+                              {error.columnName && <div className="text-muted-foreground">{error.columnName}</div>}
+                            </div>
+                          </TableCell>
+                          <TableCell>{getStatusBadge(error.status)}</TableCell>
+                          <TableCell>
+                            <span className="text-sm font-medium">{error.affectedRecords} records</span>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex gap-1">
+                              <Button variant="outline" size="sm" onClick={() => setSelectedError(error)}>
+                                <Eye className="h-3 w-3" />
+                              </Button>
+                              {error.status === "open" && (
+                                <>
+                                  <Button variant="outline" size="sm" onClick={() => handleIgnoreError(error.id)}>
+                                    <XCircle className="h-3 w-3" />
+                                  </Button>
+                                  <Button variant="outline" size="sm">
+                                    <RotateCcw className="h-3 w-3" />
+                                  </Button>
+                                </>
+                              )}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="sources" className="space-y-6">
+          {/* Data Source Overview */}
+          <div className="grid gap-4 md:grid-cols-3">
+            {sourceStats.map((stat) => {
+              const SourceIcon = getSourceIcon(stat.source)
+              return (
+                <Card key={stat.source}>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium text-muted-foreground">{stat.source}</CardTitle>
+                    <SourceIcon className="h-5 w-5 text-primary" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold text-foreground">{stat.total}</div>
+                    <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+                      <span className="text-destructive">{stat.open} open</span>
+                      <span className="text-orange-500">{stat.critical} critical</span>
+                      <span className="text-secondary">{stat.resolved} resolved</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+          </div>
+
+          {/* Grouped Error Lists */}
+          <div className="space-y-4">
+            {Object.entries(groupedErrors).map(([source, sourceErrors]: [string, any]) => {
+              const SourceIcon = getSourceIcon(source)
+              const openErrors = sourceErrors.filter((e: any) => e.status === "open").length
+              const criticalErrors = sourceErrors.filter((e: any) => e.severity === "critical").length
+
+              return (
+                <Card key={source}>
+                  <Collapsible defaultOpen={openErrors > 0 || criticalErrors > 0}>
+                    <CollapsibleTrigger asChild>
+                      <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <SourceIcon className="h-5 w-5 text-primary" />
+                            <div>
+                              <CardTitle className="text-lg">{source}</CardTitle>
+                              <CardDescription>
+                                {sourceErrors.length} errors • {openErrors} open • {criticalErrors} critical
+                              </CardDescription>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {criticalErrors > 0 && (
+                              <Badge className="bg-destructive text-destructive-foreground">
+                                {criticalErrors} Critical
+                              </Badge>
+                            )}
+                            {openErrors > 0 && <Badge className="bg-orange-500 text-white">{openErrors} Open</Badge>}
+                            <ChevronDown className="h-4 w-4 transition-transform duration-200" />
+                          </div>
+                        </div>
+                      </CardHeader>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <CardContent className="pt-0">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Error</TableHead>
+                              <TableHead>Type</TableHead>
+                              <TableHead>Severity</TableHead>
+                              <TableHead>File</TableHead>
+                              <TableHead>Status</TableHead>
+                              <TableHead>Affected</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {sourceErrors.map((error: any) => {
+                              const ErrorIcon = getErrorIcon(error.type)
+                              return (
+                                <TableRow key={error.id}>
+                                  <TableCell>
+                                    <div className="flex items-center gap-3">
+                                      <ErrorIcon className="h-4 w-4 text-destructive" />
+                                      <div>
+                                        <div className="font-medium text-foreground">{error.message}</div>
+                                        <div className="text-sm text-muted-foreground">{error.description}</div>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className="capitalize">
+                                      {error.type}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>{getSeverityBadge(error.severity)}</TableCell>
+                                  <TableCell>
+                                    <div className="text-sm">
+                                      <div className="font-medium">{error.fileName}</div>
+                                      {error.rowNumber && (
+                                        <div className="text-muted-foreground">Row: {error.rowNumber}</div>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>{getStatusBadge(error.status)}</TableCell>
+                                  <TableCell>
+                                    <span className="text-sm font-medium">{error.affectedRecords} records</span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex gap-1">
+                                      <Button variant="outline" size="sm" onClick={() => setSelectedError(error)}>
+                                        <Eye className="h-3 w-3" />
+                                      </Button>
+                                      {error.status === "open" && (
+                                        <>
+                                          <Button variant="outline" size="sm">
+                                            <Edit className="h-3 w-3" />
+                                          </Button>
+                                          <Button variant="outline" size="sm">
+                                            <RotateCcw className="h-3 w-3" />
+                                          </Button>
+                                        </>
+                                      )}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                              )
+                            })}
+                          </TableBody>
+                        </Table>
+                      </CardContent>
+                    </CollapsibleContent>
+                  </Collapsible>
+                </Card>
+              )
+            })}
+          </div>
         </TabsContent>
 
         <TabsContent value="rules" className="space-y-6">
@@ -459,51 +614,76 @@ export function ErrorDetection() {
               <CardDescription>Automated rules for detecting and correcting data issues</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Rule Name</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Condition</TableHead>
-                    <TableHead>Action</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Applied</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {correctionRules.map((rule) => (
-                    <TableRow key={rule.id}>
-                      <TableCell className="font-medium">{rule.name}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="capitalize">
-                          {rule.type}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate">{rule.condition}</TableCell>
-                      <TableCell className="max-w-xs truncate">{rule.action}</TableCell>
-                      <TableCell>
-                        {rule.isActive ? (
-                          <Badge className="bg-secondary text-secondary-foreground">Active</Badge>
-                        ) : (
-                          <Badge variant="outline">Inactive</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>{rule.appliedCount} times</TableCell>
-                      <TableCell>
-                        <div className="flex gap-1">
-                          <Button variant="outline" size="sm">
-                            <Edit className="h-3 w-3" />
-                          </Button>
-                          <Button variant="outline" size="sm">
-                            <Trash2 className="h-3 w-3" />
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
+              {rulesLoading ? (
+                <div className="space-y-4">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-4 w-48" />
+                      <Skeleton className="h-4 w-32" />
+                      <Skeleton className="h-5 w-16" />
+                      <Skeleton className="h-4 w-12" />
+                      <div className="flex gap-1">
+                        <Skeleton className="h-8 w-8" />
+                        <Skeleton className="h-8 w-8" />
+                      </div>
+                    </div>
                   ))}
-                </TableBody>
-              </Table>
+                </div>
+              ) : rulesError ? (
+                <div className="text-center py-8">
+                  <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+                  <h3 className="text-lg font-semibold text-foreground mb-2">Failed to Load Rules</h3>
+                  <p className="text-muted-foreground">Unable to fetch correction rules. Please try again.</p>
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Rule Name</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Condition</TableHead>
+                      <TableHead>Action</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Applied</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {correctionRules.map((rule: any) => (
+                      <TableRow key={rule.id}>
+                        <TableCell className="font-medium">{rule.name}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="capitalize">
+                            {rule.type}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="max-w-xs truncate">{rule.condition}</TableCell>
+                        <TableCell className="max-w-xs truncate">{rule.action}</TableCell>
+                        <TableCell>
+                          {rule.isActive ? (
+                            <Badge className="bg-secondary text-secondary-foreground">Active</Badge>
+                          ) : (
+                            <Badge variant="outline">Inactive</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>{rule.appliedCount} times</TableCell>
+                        <TableCell>
+                          <div className="flex gap-1">
+                            <Button variant="outline" size="sm">
+                              <Edit className="h-3 w-3" />
+                            </Button>
+                            <Button variant="outline" size="sm">
+                              <Trash2 className="h-3 w-3" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -545,7 +725,11 @@ export function ErrorDetection() {
               <DialogTitle>Error Details</DialogTitle>
               <DialogDescription>Detailed information about the detected error</DialogDescription>
             </DialogHeader>
-            <ErrorDetailView error={selectedError} />
+            <ErrorDetailView
+              error={selectedError}
+              onIgnore={handleIgnoreError}
+              onApplyRule={handleApplyCorrectionRule}
+            />
           </DialogContent>
         </Dialog>
       )}
@@ -554,48 +738,157 @@ export function ErrorDetection() {
 }
 
 function CorrectionRuleForm({ onClose }: { onClose: () => void }) {
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    condition: "",
+    action: "replace" as "replace" | "remove" | "flag",
+    replacement: "",
+    severity: "medium" as "low" | "medium" | "high",
+    autoApply: false,
+  })
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!formData.name || !formData.condition) {
+      toast({
+        title: "Missing Information",
+        description: "Please fill in all required fields.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      await apiService.createCorrectionRule(formData)
+      mutate("/api/errors/rules") // Refresh rules list
+      toast({
+        title: "Rule Created",
+        description: "Correction rule has been created successfully.",
+      })
+      onClose()
+    } catch (error) {
+      toast({
+        title: "Creation Failed",
+        description: "Failed to create correction rule. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
   return (
-    <div className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6">
       <div className="grid gap-4">
         <div>
           <Label htmlFor="rule-name">Rule Name</Label>
-          <Input id="rule-name" placeholder="e.g., Email Validation Rule" />
+          <Input
+            id="rule-name"
+            placeholder="e.g., Email Validation Rule"
+            value={formData.name}
+            onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
+            required
+          />
         </div>
         <div>
-          <Label htmlFor="rule-type">Rule Type</Label>
-          <Select>
+          <Label htmlFor="rule-description">Description</Label>
+          <Input
+            id="rule-description"
+            placeholder="Brief description of what this rule does"
+            value={formData.description}
+            onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+          />
+        </div>
+        <div>
+          <Label htmlFor="rule-action">Action Type</Label>
+          <Select
+            value={formData.action}
+            onValueChange={(value: any) => setFormData((prev) => ({ ...prev, action: value }))}
+          >
             <SelectTrigger>
-              <SelectValue placeholder="Select rule type" />
+              <SelectValue placeholder="Select action type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="validate">Validate</SelectItem>
-              <SelectItem value="transform">Transform</SelectItem>
               <SelectItem value="replace">Replace</SelectItem>
-              <SelectItem value="skip">Skip</SelectItem>
+              <SelectItem value="remove">Remove</SelectItem>
+              <SelectItem value="flag">Flag</SelectItem>
             </SelectContent>
           </Select>
         </div>
         <div>
           <Label htmlFor="rule-condition">Condition</Label>
-          <Textarea id="rule-condition" placeholder="Define when this rule should be applied" />
+          <Textarea
+            id="rule-condition"
+            placeholder="Define when this rule should be applied"
+            value={formData.condition}
+            onChange={(e) => setFormData((prev) => ({ ...prev, condition: e.target.value }))}
+            required
+          />
         </div>
+        {formData.action === "replace" && (
+          <div>
+            <Label htmlFor="replacement">Replacement Value</Label>
+            <Input
+              id="replacement"
+              placeholder="Value to replace with"
+              value={formData.replacement}
+              onChange={(e) => setFormData((prev) => ({ ...prev, replacement: e.target.value }))}
+            />
+          </div>
+        )}
         <div>
-          <Label htmlFor="rule-action">Action</Label>
-          <Textarea id="rule-action" placeholder="Define what action to take when condition is met" />
+          <Label htmlFor="severity">Severity</Label>
+          <Select
+            value={formData.severity}
+            onValueChange={(value: any) => setFormData((prev) => ({ ...prev, severity: value }))}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="low">Low</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center space-x-2">
+          <input
+            type="checkbox"
+            id="auto-apply"
+            checked={formData.autoApply}
+            onChange={(e) => setFormData((prev) => ({ ...prev, autoApply: e.target.checked }))}
+          />
+          <Label htmlFor="auto-apply" className="text-sm">
+            Auto-apply this rule
+          </Label>
         </div>
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={onClose}>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
           Cancel
         </Button>
-        <Button>Create Rule</Button>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Creating..." : "Create Rule"}
+        </Button>
       </div>
-    </div>
+    </form>
   )
 }
 
-function ErrorDetailView({ error }: { error: DataError }) {
+function ErrorDetailView({
+  error,
+  onIgnore,
+  onApplyRule,
+}: {
+  error: DataError
+  onIgnore: (errorId: string) => void
+  onApplyRule: (ruleId: string, errorIds: string[]) => void
+}) {
   return (
     <div className="space-y-6">
       <div className="grid gap-4">
@@ -643,7 +936,9 @@ function ErrorDetailView({ error }: { error: DataError }) {
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline">Ignore</Button>
+        <Button variant="outline" onClick={() => onIgnore(error.id)}>
+          Ignore
+        </Button>
         <Button variant="outline">
           <Edit className="mr-2 h-4 w-4" />
           Edit

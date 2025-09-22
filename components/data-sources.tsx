@@ -1,5 +1,7 @@
 "use client"
 
+import type React from "react"
+
 import { useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -331,7 +333,7 @@ export function DataSources() {
               source={selectedSource}
               onClose={() => setIsScheduleDialogOpen(false)}
               onSave={(schedule) => {
-                mutate("/api/data-sources") // Refresh data
+                mutate("/api/data-sources") // Refresh data sources list
                 toast({
                   title: "Schedule Updated",
                   description: "Data source schedule has been updated successfully.",
@@ -404,9 +406,52 @@ export function DataSources() {
 
 function DataSourceForm({ onClose }: { onClose: () => void }) {
   const [sourceType, setSourceType] = useState<string>("")
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [formData, setFormData] = useState<Record<string, any>>({})
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!sourceType) {
+      toast({
+        title: "Missing Information",
+        description: "Please select a source type.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSubmitting(true)
+    try {
+      const sourceData = {
+        name: formData.name || "",
+        type: sourceType as "api" | "folder" | "sharepoint",
+        config: { ...formData },
+      }
+
+      await apiService.createDataSource(sourceData)
+      mutate("/api/data-sources") // Refresh data sources list
+      toast({
+        title: "Data Source Created",
+        description: "Your data source has been created successfully.",
+      })
+      onClose()
+    } catch (error) {
+      toast({
+        title: "Creation Failed",
+        description: "Failed to create data source. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
+  }
+
+  const updateFormData = (key: string, value: any) => {
+    setFormData((prev) => ({ ...prev, [key]: value }))
+  }
 
   return (
-    <div className="space-y-6">
+    <form onSubmit={handleSubmit} className="space-y-6">
       <div>
         <Label htmlFor="source-type">Source Type</Label>
         <Select value={sourceType} onValueChange={setSourceType}>
@@ -427,11 +472,23 @@ function DataSourceForm({ onClose }: { onClose: () => void }) {
             <div className="grid gap-4">
               <div>
                 <Label htmlFor="api-name">Source Name</Label>
-                <Input id="api-name" placeholder="e.g., Sales API" />
+                <Input
+                  id="api-name"
+                  placeholder="e.g., Sales API"
+                  value={formData.name || ""}
+                  onChange={(e) => updateFormData("name", e.target.value)}
+                  required
+                />
               </div>
               <div>
                 <Label htmlFor="api-endpoint">API Endpoint</Label>
-                <Input id="api-endpoint" placeholder="https://api.example.com/data" />
+                <Input
+                  id="api-endpoint"
+                  placeholder="https://api.example.com/data"
+                  value={formData.endpoint || ""}
+                  onChange={(e) => updateFormData("endpoint", e.target.value)}
+                  required
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -471,11 +528,23 @@ function DataSourceForm({ onClose }: { onClose: () => void }) {
             <div className="grid gap-4">
               <div>
                 <Label htmlFor="folder-name">Source Name</Label>
-                <Input id="folder-name" placeholder="e.g., Customer Files" />
+                <Input
+                  id="folder-name"
+                  placeholder="e.g., Customer Files"
+                  value={formData.name || ""}
+                  onChange={(e) => updateFormData("name", e.target.value)}
+                  required
+                />
               </div>
               <div>
                 <Label htmlFor="folder-path">Folder Path</Label>
-                <Input id="folder-path" placeholder="/data/customers" />
+                <Input
+                  id="folder-path"
+                  placeholder="/data/customers"
+                  value={formData.path || ""}
+                  onChange={(e) => updateFormData("path", e.target.value)}
+                  required
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -502,11 +571,23 @@ function DataSourceForm({ onClose }: { onClose: () => void }) {
             <div className="grid gap-4">
               <div>
                 <Label htmlFor="sp-name">Source Name</Label>
-                <Input id="sp-name" placeholder="e.g., SharePoint Reports" />
+                <Input
+                  id="sp-name"
+                  placeholder="e.g., SharePoint Reports"
+                  value={formData.name || ""}
+                  onChange={(e) => updateFormData("name", e.target.value)}
+                  required
+                />
               </div>
               <div>
                 <Label htmlFor="sp-site">Site URL</Label>
-                <Input id="sp-site" placeholder="https://company.sharepoint.com/sites/reports" />
+                <Input
+                  id="sp-site"
+                  placeholder="https://company.sharepoint.com/sites/reports"
+                  value={formData.siteUrl || ""}
+                  onChange={(e) => updateFormData("siteUrl", e.target.value)}
+                  required
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -532,16 +613,18 @@ function DataSourceForm({ onClose }: { onClose: () => void }) {
       )}
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={onClose}>
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
           Cancel
         </Button>
-        <Button>
+        <Button type="button" variant="outline" disabled={isSubmitting}>
           <TestTube className="mr-2 h-4 w-4" />
           Test Connection
         </Button>
-        <Button>Create Source</Button>
+        <Button type="submit" disabled={isSubmitting}>
+          {isSubmitting ? "Creating..." : "Create Source"}
+        </Button>
       </div>
-    </div>
+    </form>
   )
 }
 
@@ -558,18 +641,33 @@ function ScheduleForm({
   const [frequency, setFrequency] = useState(source.schedule?.frequency ?? "daily")
   const [time, setTime] = useState(source.schedule?.time ?? "09:00")
   const [selectedDays, setSelectedDays] = useState<string[]>(source.schedule?.days ?? [])
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
-  const handleSave = () => {
-    const schedule = {
-      enabled,
-      frequency: frequency as "hourly" | "daily" | "weekly" | "monthly",
-      time: frequency !== "hourly" ? time : undefined,
-      days: frequency === "weekly" ? selectedDays : undefined,
-      nextRun: enabled ? getNextRunTime(frequency, time, selectedDays) : undefined,
+  const handleSave = async () => {
+    setIsSubmitting(true)
+    try {
+      const schedule = {
+        enabled,
+        frequency: frequency as "hourly" | "daily" | "weekly" | "monthly",
+        time: frequency !== "hourly" ? time : undefined,
+        days: frequency === "weekly" ? selectedDays : undefined,
+        nextRun: enabled ? getNextRunTime(frequency, time, selectedDays) : undefined,
+      }
+
+      await apiService.updateSchedule(source.id, schedule)
+      onSave(schedule)
+      onClose()
+    } catch (error) {
+      toast({
+        title: "Update Failed",
+        description: "Failed to update schedule. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
     }
-    onSave(schedule)
   }
 
   const getNextRunTime = (freq: string, time: string, days: string[]) => {
@@ -643,10 +741,12 @@ function ScheduleForm({
       )}
 
       <div className="flex justify-end gap-3 pt-4">
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="outline" onClick={onClose} disabled={isSubmitting}>
           Cancel
         </Button>
-        <Button onClick={handleSave}>Save Schedule</Button>
+        <Button onClick={handleSave} disabled={isSubmitting}>
+          {isSubmitting ? "Saving..." : "Save Schedule"}
+        </Button>
       </div>
     </div>
   )

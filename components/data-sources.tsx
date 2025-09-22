@@ -17,6 +17,11 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Tabs, TabsContent } from "@/components/ui/tabs"
+import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "@/hooks/use-toast"
+import { mutate } from "swr"
+import { useDataSources } from "@/hooks/use-api"
+import { apiService } from "@/lib/api"
 import {
   Database,
   FolderOpen,
@@ -51,65 +56,62 @@ interface DataSource {
 }
 
 export function DataSources() {
-  const [dataSources, setDataSources] = useState<DataSource[]>([
-    {
-      id: "ds-001",
-      name: "Sales API",
-      type: "api",
-      status: "active",
-      lastSync: "2 minutes ago",
-      recordsCount: 15420,
-      config: { endpoint: "https://api.company.com/sales", method: "GET" },
-      schedule: {
-        enabled: true,
-        frequency: "hourly",
-        nextRun: "In 58 minutes",
-      },
-    },
-    {
-      id: "ds-002",
-      name: "Customer Files",
-      type: "folder",
-      status: "active",
-      lastSync: "15 minutes ago",
-      recordsCount: 8934,
-      config: { path: "/data/customers", watchMode: true },
-      schedule: {
-        enabled: true,
-        frequency: "daily",
-        time: "02:00",
-        nextRun: "Tomorrow at 2:00 AM",
-      },
-    },
-    {
-      id: "ds-003",
-      name: "SharePoint Reports",
-      type: "sharepoint",
-      status: "error",
-      lastSync: "2 hours ago",
-      recordsCount: 0,
-      config: { siteUrl: "https://company.sharepoint.com/sites/reports", library: "Documents" },
-      schedule: {
-        enabled: false,
-        frequency: "weekly",
-        days: ["Monday", "Wednesday", "Friday"],
-        time: "09:00",
-      },
-    },
-  ])
+  const { data: dataSourcesResponse, error, isLoading } = useDataSources()
+  const dataSources = dataSourcesResponse?.data || []
 
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false)
-  const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
+  const [selectedSource, setSelectedSource] = useState<any>(null)
 
-  const toggleSchedule = (sourceId: string) => {
-    setDataSources((prev) =>
-      prev.map((source) =>
-        source.id === sourceId
-          ? { ...source, schedule: { ...source.schedule!, enabled: !source.schedule?.enabled } }
-          : source,
-      ),
-    )
+  const toggleSchedule = async (sourceId: string) => {
+    try {
+      await apiService.toggleSchedule(sourceId)
+      mutate("/api/data-sources") // Refresh data
+      toast({
+        title: "Schedule Updated",
+        description: "Data source schedule has been toggled successfully.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to update schedule. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const testConnection = async (sourceId: string) => {
+    try {
+      const result = await apiService.testDataSource(sourceId)
+      toast({
+        title: result.data.success ? "Connection Successful" : "Connection Failed",
+        description: result.data.message,
+        variant: result.data.success ? "default" : "destructive",
+      })
+    } catch (error) {
+      toast({
+        title: "Test Failed",
+        description: "Unable to test connection. Please try again.",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const deleteSource = async (sourceId: string) => {
+    try {
+      await apiService.deleteDataSource(sourceId)
+      mutate("/api/data-sources") // Refresh data
+      toast({
+        title: "Source Deleted",
+        description: "Data source has been deleted successfully.",
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete data source. Please try again.",
+        variant: "destructive",
+      })
+    }
   }
 
   const getSourceIcon = (type: string) => {
@@ -178,86 +180,143 @@ export function DataSources() {
 
       {/* Data Sources Grid */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {dataSources.map((source) => {
-          const Icon = getSourceIcon(source.type)
-          return (
-            <Card key={source.id} className="relative">
+        {isLoading ? (
+          Array.from({ length: 6 }).map((_, i) => (
+            <Card key={i}>
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-primary/10">
-                      <Icon className="h-5 w-5 text-primary" />
-                    </div>
+                    <Skeleton className="h-9 w-9 rounded-lg" />
                     <div>
-                      <CardTitle className="text-lg">{source.name}</CardTitle>
-                      <CardDescription className="capitalize">{source.type} Source</CardDescription>
+                      <Skeleton className="h-5 w-24 mb-1" />
+                      <Skeleton className="h-4 w-16" />
                     </div>
                   </div>
-                  {getStatusIcon(source.status)}
+                  <Skeleton className="h-4 w-4" />
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Status</span>
-                  {getStatusBadge(source.status)}
+                  <Skeleton className="h-4 w-12" />
+                  <Skeleton className="h-5 w-16" />
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Last Sync</span>
-                  <span className="text-sm font-medium">{source.lastSync}</span>
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-4 w-20" />
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Records</span>
-                  <span className="text-sm font-medium">{source.recordsCount.toLocaleString()}</span>
+                  <Skeleton className="h-4 w-14" />
+                  <Skeleton className="h-4 w-12" />
                 </div>
-                {source.schedule && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Schedule</span>
-                    <div className="flex items-center gap-2">
-                      <Badge variant={source.schedule.enabled ? "default" : "outline"} className="text-xs">
-                        {source.schedule.enabled ? "Active" : "Paused"}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{source.schedule.frequency}</span>
-                    </div>
-                  </div>
-                )}
-                {source.schedule?.nextRun && source.schedule.enabled && (
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-muted-foreground">Next Run</span>
-                    <span className="text-sm font-medium">{source.schedule.nextRun}</span>
-                  </div>
-                )}
                 <div className="flex gap-2 pt-2">
-                  <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                    <TestTube className="mr-2 h-3 w-3" />
-                    Test
-                  </Button>
-                  <Button variant="outline" size="sm" className="flex-1 bg-transparent">
-                    <Edit className="mr-2 h-3 w-3" />
-                    Edit
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => {
-                      setSelectedSource(source)
-                      setIsScheduleDialogOpen(true)
-                    }}
-                  >
-                    <Calendar className="h-3 w-3" />
-                  </Button>
-                  {source.schedule && (
-                    <Button variant="outline" size="sm" onClick={() => toggleSchedule(source.id)}>
-                      {source.schedule.enabled ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
-                    </Button>
-                  )}
-                  <Button variant="outline" size="sm">
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
+                  <Skeleton className="h-8 flex-1" />
+                  <Skeleton className="h-8 flex-1" />
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-8" />
+                  <Skeleton className="h-8 w-8" />
                 </div>
               </CardContent>
             </Card>
-          )
-        })}
+          ))
+        ) : error ? (
+          <div className="col-span-full text-center py-8">
+            <AlertCircle className="h-12 w-12 text-destructive mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">Failed to Load Data Sources</h3>
+            <p className="text-muted-foreground">Unable to fetch data sources. Please try again.</p>
+          </div>
+        ) : dataSources.length === 0 ? (
+          <div className="col-span-full text-center py-8">
+            <Database className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-foreground mb-2">No Data Sources</h3>
+            <p className="text-muted-foreground">Get started by adding your first data source.</p>
+          </div>
+        ) : (
+          dataSources.map((source: any) => {
+            const Icon = getSourceIcon(source.type)
+            return (
+              <Card key={source.id} className="relative">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-primary/10">
+                        <Icon className="h-5 w-5 text-primary" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-lg">{source.name}</CardTitle>
+                        <CardDescription className="capitalize">{source.type} Source</CardDescription>
+                      </div>
+                    </div>
+                    {getStatusIcon(source.status)}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Status</span>
+                    {getStatusBadge(source.status)}
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Last Sync</span>
+                    <span className="text-sm font-medium">{source.lastSync}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Records</span>
+                    <span className="text-sm font-medium">{source.recordsCount?.toLocaleString() || 0}</span>
+                  </div>
+                  {source.schedule && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Schedule</span>
+                      <div className="flex items-center gap-2">
+                        <Badge variant={source.schedule.enabled ? "default" : "outline"} className="text-xs">
+                          {source.schedule.enabled ? "Active" : "Paused"}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">{source.schedule.frequency}</span>
+                      </div>
+                    </div>
+                  )}
+                  {source.schedule?.nextRun && source.schedule.enabled && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground">Next Run</span>
+                      <span className="text-sm font-medium">{source.schedule.nextRun}</span>
+                    </div>
+                  )}
+                  <div className="flex gap-2 pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 bg-transparent"
+                      onClick={() => testConnection(source.id)}
+                    >
+                      <TestTube className="mr-2 h-3 w-3" />
+                      Test
+                    </Button>
+                    <Button variant="outline" size="sm" className="flex-1 bg-transparent">
+                      <Edit className="mr-2 h-3 w-3" />
+                      Edit
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        setSelectedSource(source)
+                        setIsScheduleDialogOpen(true)
+                      }}
+                    >
+                      <Calendar className="h-3 w-3" />
+                    </Button>
+                    {source.schedule && (
+                      <Button variant="outline" size="sm" onClick={() => toggleSchedule(source.id)}>
+                        {source.schedule.enabled ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                      </Button>
+                    )}
+                    <Button variant="outline" size="sm" onClick={() => deleteSource(source.id)}>
+                      <Trash2 className="h-3 w-3" />
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })
+        )}
       </div>
 
       {/* Schedule Dialog */}
@@ -272,10 +331,11 @@ export function DataSources() {
               source={selectedSource}
               onClose={() => setIsScheduleDialogOpen(false)}
               onSave={(schedule) => {
-                setDataSources((prev) =>
-                  prev.map((source) => (source.id === selectedSource.id ? { ...source, schedule } : source)),
-                )
-                setIsScheduleDialogOpen(false)
+                mutate("/api/data-sources") // Refresh data
+                toast({
+                  title: "Schedule Updated",
+                  description: "Data source schedule has been updated successfully.",
+                })
               }}
             />
           )}
@@ -490,9 +550,9 @@ function ScheduleForm({
   onClose,
   onSave,
 }: {
-  source: DataSource
+  source: any
   onClose: () => void
-  onSave: (schedule: DataSource["schedule"]) => void
+  onSave: (schedule: any) => void
 }) {
   const [enabled, setEnabled] = useState(source.schedule?.enabled ?? false)
   const [frequency, setFrequency] = useState(source.schedule?.frequency ?? "daily")

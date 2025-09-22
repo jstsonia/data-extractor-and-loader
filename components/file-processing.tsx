@@ -32,6 +32,11 @@ import {
   FileJson,
   Package,
 } from "lucide-react"
+import { useProcessingJobs } from "@/hooks/use-api"
+import { apiService } from "@/lib/api"
+import { toast } from "@/hooks/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"
+import { mutate } from "swr"
 
 interface ProcessingJob {
   id: string
@@ -49,78 +54,8 @@ interface ProcessingJob {
 }
 
 export function FileProcessing() {
-  const [processingJobs, setProcessingJobs] = useState<ProcessingJob[]>([
-    {
-      id: "job-001",
-      fileName: "sales_data_2024.csv",
-      fileType: "csv",
-      size: "2.4 MB",
-      status: "completed",
-      progress: 100,
-      recordsProcessed: 15420,
-      totalRecords: 15420,
-      startTime: "10:30 AM",
-      duration: "2m 34s",
-      errors: 0,
-      source: "File Folder",
-    },
-    {
-      id: "job-002",
-      fileName: "customer_records.json",
-      fileType: "json",
-      size: "5.1 MB",
-      status: "processing",
-      progress: 65,
-      recordsProcessed: 8234,
-      totalRecords: 12678,
-      startTime: "10:45 AM",
-      duration: "1m 12s",
-      errors: 3,
-      source: "API",
-    },
-    {
-      id: "job-003",
-      fileName: "inventory_data.xlsx",
-      fileType: "excel",
-      size: "1.8 MB",
-      status: "error",
-      progress: 45,
-      recordsProcessed: 2341,
-      totalRecords: 5200,
-      startTime: "10:20 AM",
-      duration: "45s",
-      errors: 12,
-      source: "SharePoint",
-    },
-    {
-      id: "job-004",
-      fileName: "analytics_export.parquet",
-      fileType: "parquet",
-      size: "8.7 MB",
-      status: "pending",
-      progress: 0,
-      recordsProcessed: 0,
-      totalRecords: 25000,
-      startTime: "-",
-      duration: "-",
-      errors: 0,
-      source: "File Folder",
-    },
-    {
-      id: "job-005",
-      fileName: "backup_files.zip",
-      fileType: "zip",
-      size: "15.2 MB",
-      status: "paused",
-      progress: 30,
-      recordsProcessed: 1200,
-      totalRecords: 4000,
-      startTime: "09:15 AM",
-      duration: "3m 45s",
-      errors: 1,
-      source: "SharePoint",
-    },
-  ])
+  const { data: jobsResponse, error, isLoading } = useProcessingJobs()
+  const processingJobs = jobsResponse?.data || []
 
   const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
 
@@ -188,6 +123,33 @@ export function FileProcessing() {
     { type: "ZIP", description: "Compressed archive files", icon: Package, color: "text-orange-600" },
   ]
 
+  const handleJobAction = async (jobId: string, action: "pause" | "resume" | "retry") => {
+    try {
+      switch (action) {
+        case "pause":
+          await apiService.pauseJob(jobId)
+          break
+        case "resume":
+          await apiService.resumeJob(jobId)
+          break
+        case "retry":
+          await apiService.retryJob(jobId)
+          break
+      }
+      mutate("/api/processing/jobs") // Refresh data
+      toast({
+        title: "Action Completed",
+        description: `Job ${action} completed successfully.`,
+      })
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: `Failed to ${action} job. Please try again.`,
+        variant: "destructive",
+      })
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -239,7 +201,7 @@ export function FileProcessing() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">
-              {processingJobs.filter((job) => job.status === "processing").length}
+              {processingJobs.filter((job: any) => job.status === "processing").length}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Active jobs</p>
           </CardContent>
@@ -252,7 +214,7 @@ export function FileProcessing() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">
-              {processingJobs.filter((job) => job.status === "completed").length}
+              {processingJobs.filter((job: any) => job.status === "completed").length}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Success rate: 95%</p>
           </CardContent>
@@ -265,7 +227,7 @@ export function FileProcessing() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-foreground">
-              {processingJobs.filter((job) => job.status === "error").length}
+              {processingJobs.filter((job: any) => job.status === "error").length}
             </div>
             <p className="text-xs text-muted-foreground mt-1">Needs attention</p>
           </CardContent>
@@ -279,96 +241,133 @@ export function FileProcessing() {
           <CardDescription>Current and recent file processing activities</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>File</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Progress</TableHead>
-                <TableHead>Records</TableHead>
-                <TableHead>Duration</TableHead>
-                <TableHead>Errors</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {processingJobs.map((job) => {
-                const FileIcon = getFileIcon(job.fileType)
-                return (
-                  <TableRow key={job.id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <FileIcon className="h-4 w-4 text-muted-foreground" />
-                        <div>
-                          <div className="font-medium text-foreground">{job.fileName}</div>
-                          <div className="text-sm text-muted-foreground">{job.size}</div>
+          {isLoading ? (
+            <div className="space-y-4">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-border">
+                  <div className="flex items-center gap-3">
+                    <Skeleton className="h-4 w-4" />
+                    <div>
+                      <Skeleton className="h-4 w-32 mb-1" />
+                      <Skeleton className="h-3 w-16" />
+                    </div>
+                  </div>
+                  <Skeleton className="h-5 w-16" />
+                  <Skeleton className="h-2 w-24" />
+                  <div>
+                    <Skeleton className="h-4 w-12 mb-1" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                  <div>
+                    <Skeleton className="h-4 w-12 mb-1" />
+                    <Skeleton className="h-3 w-16" />
+                  </div>
+                  <Skeleton className="h-5 w-8" />
+                  <div className="flex gap-1">
+                    <Skeleton className="h-8 w-8" />
+                    <Skeleton className="h-8 w-8" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : error ? (
+            <div className="text-center py-8">
+              <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">Failed to Load Jobs</h3>
+              <p className="text-muted-foreground">Unable to fetch processing jobs. Please try again.</p>
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>File</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Progress</TableHead>
+                  <TableHead>Records</TableHead>
+                  <TableHead>Duration</TableHead>
+                  <TableHead>Errors</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {processingJobs.map((job: any) => {
+                  const FileIcon = getFileIcon(job.fileType)
+                  return (
+                    <TableRow key={job.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <FileIcon className="h-4 w-4 text-muted-foreground" />
+                          <div>
+                            <div className="font-medium text-foreground">{job.fileName}</div>
+                            <div className="text-sm text-muted-foreground">{job.size}</div>
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="uppercase">
-                        {job.fileType}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(job.status)}
-                        {getStatusBadge(job.status)}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="w-24">
-                        <Progress value={job.progress} className="h-2" />
-                        <div className="text-xs text-muted-foreground mt-1">{job.progress}%</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        <div className="font-medium">{job.recordsProcessed.toLocaleString()}</div>
-                        <div className="text-muted-foreground">of {job.totalRecords.toLocaleString()}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        <div className="font-medium">{job.duration}</div>
-                        <div className="text-muted-foreground">{job.startTime}</div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {job.errors > 0 ? (
-                        <Badge className="bg-destructive text-destructive-foreground">{job.errors}</Badge>
-                      ) : (
-                        <span className="text-sm text-muted-foreground">None</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        {job.status === "processing" && (
-                          <Button variant="outline" size="sm">
-                            <Pause className="h-3 w-3" />
-                          </Button>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline" className="uppercase">
+                          {job.fileType}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {getStatusIcon(job.status)}
+                          {getStatusBadge(job.status)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="w-24">
+                          <Progress value={job.progress} className="h-2" />
+                          <div className="text-xs text-muted-foreground mt-1">{job.progress}%</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <div className="font-medium">{job.recordsProcessed?.toLocaleString() || 0}</div>
+                          <div className="text-muted-foreground">of {job.totalRecords?.toLocaleString() || 0}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <div className="font-medium">{job.duration}</div>
+                          <div className="text-muted-foreground">{job.startTime}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {job.errors > 0 ? (
+                          <Badge className="bg-destructive text-destructive-foreground">{job.errors}</Badge>
+                        ) : (
+                          <span className="text-sm text-muted-foreground">None</span>
                         )}
-                        {job.status === "paused" && (
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          {job.status === "processing" && (
+                            <Button variant="outline" size="sm" onClick={() => handleJobAction(job.id, "pause")}>
+                              <Pause className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {job.status === "paused" && (
+                            <Button variant="outline" size="sm" onClick={() => handleJobAction(job.id, "resume")}>
+                              <Play className="h-3 w-3" />
+                            </Button>
+                          )}
+                          {job.status === "error" && (
+                            <Button variant="outline" size="sm" onClick={() => handleJobAction(job.id, "retry")}>
+                              <RotateCcw className="h-3 w-3" />
+                            </Button>
+                          )}
                           <Button variant="outline" size="sm">
-                            <Play className="h-3 w-3" />
+                            <Eye className="h-3 w-3" />
                           </Button>
-                        )}
-                        {job.status === "error" && (
-                          <Button variant="outline" size="sm">
-                            <RotateCcw className="h-3 w-3" />
-                          </Button>
-                        )}
-                        <Button variant="outline" size="sm">
-                          <Eye className="h-3 w-3" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                )
-              })}
-            </TableBody>
-          </Table>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -400,6 +399,40 @@ export function FileProcessing() {
 }
 
 function FileUploadForm({ onClose }: { onClose: () => void }) {
+  const [targetSink, setTargetSink] = useState("")
+  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
+  const [isUploading, setIsUploading] = useState(false)
+
+  const handleUpload = async () => {
+    if (!selectedFiles || !targetSink) {
+      toast({
+        title: "Missing Information",
+        description: "Please select files and specify a target data sink.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsUploading(true)
+    try {
+      await apiService.uploadFiles(selectedFiles, targetSink)
+      mutate("/api/processing/jobs") // Refresh jobs list
+      toast({
+        title: "Upload Started",
+        description: "Files have been uploaded and processing has begun.",
+      })
+      onClose()
+    } catch (error) {
+      toast({
+        title: "Upload Failed",
+        description: "Failed to upload files. Please try again.",
+        variant: "destructive",
+      })
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="border-2 border-dashed border-border rounded-lg p-8 text-center">
@@ -408,22 +441,40 @@ function FileUploadForm({ onClose }: { onClose: () => void }) {
         <div className="text-sm text-muted-foreground mb-4">
           Supports CSV, JSON, Excel, Parquet, and ZIP files up to 100MB
         </div>
-        <Button variant="outline">
+        <Button variant="outline" onClick={() => document.getElementById("file-input")?.click()}>
           <Upload className="mr-2 h-4 w-4" />
           Select Files
         </Button>
+        <input
+          id="file-input"
+          type="file"
+          multiple
+          accept=".csv,.json,.xlsx,.xls,.parquet,.zip"
+          className="hidden"
+          onChange={(e) => setSelectedFiles(e.target.files)}
+        />
+        {selectedFiles && (
+          <div className="mt-4 text-sm text-muted-foreground">{selectedFiles.length} file(s) selected</div>
+        )}
       </div>
 
       <div>
         <Label htmlFor="target-sink">Target Data Sink</Label>
-        <Input id="target-sink" placeholder="Select destination for processed data" />
+        <Input
+          id="target-sink"
+          placeholder="Select destination for processed data"
+          value={targetSink}
+          onChange={(e) => setTargetSink(e.target.value)}
+        />
       </div>
 
       <div className="flex justify-end gap-3">
-        <Button variant="outline" onClick={onClose}>
+        <Button variant="outline" onClick={onClose} disabled={isUploading}>
           Cancel
         </Button>
-        <Button>Start Processing</Button>
+        <Button onClick={handleUpload} disabled={isUploading}>
+          {isUploading ? "Uploading..." : "Start Processing"}
+        </Button>
       </div>
     </div>
   )

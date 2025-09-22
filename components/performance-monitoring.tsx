@@ -21,6 +21,8 @@ import {
   Server,
   TrendingUp,
   Zap,
+  Calendar,
+  Play,
 } from "lucide-react"
 
 interface PerformanceMetric {
@@ -38,6 +40,20 @@ interface SystemResource {
   total: number
   unit: string
   status: "good" | "warning" | "critical"
+}
+
+interface ScheduledPipelinePerformance {
+  id: string
+  name: string
+  type: "api" | "folder" | "sharepoint"
+  frequency: string
+  lastRun: string
+  duration: string
+  recordsProcessed: number
+  status: "success" | "warning" | "error"
+  avgThroughput: string
+  avgLatency: string
+  successRate: number
 }
 
 export function PerformanceMonitoring() {
@@ -76,6 +92,61 @@ export function PerformanceMonitoring() {
       trend: "stable",
       trendValue: 0.1,
       status: "good",
+    },
+  ]
+
+  const scheduledPipelinePerformance: ScheduledPipelinePerformance[] = [
+    {
+      id: "sp-001",
+      name: "Sales API",
+      type: "api",
+      frequency: "hourly",
+      lastRun: "37 minutes ago",
+      duration: "2m 15s",
+      recordsProcessed: 15420,
+      status: "success",
+      avgThroughput: "6,850 records/min",
+      avgLatency: "180ms",
+      successRate: 99.2,
+    },
+    {
+      id: "sp-002",
+      name: "Customer Files",
+      type: "folder",
+      frequency: "daily",
+      lastRun: "Yesterday at 2:00 AM",
+      duration: "8m 45s",
+      recordsProcessed: 8934,
+      status: "success",
+      avgThroughput: "1,020 records/min",
+      avgLatency: "320ms",
+      successRate: 98.7,
+    },
+    {
+      id: "sp-003",
+      name: "SharePoint Reports",
+      type: "sharepoint",
+      frequency: "weekly",
+      lastRun: "Last Monday at 9:00 AM",
+      duration: "Failed after 1m 23s",
+      recordsProcessed: 0,
+      status: "error",
+      avgThroughput: "0 records/min",
+      avgLatency: "N/A",
+      successRate: 0,
+    },
+    {
+      id: "sp-004",
+      name: "Inventory Data",
+      type: "api",
+      frequency: "daily",
+      lastRun: "Yesterday at 6:00 PM",
+      duration: "4m 12s",
+      recordsProcessed: 12567,
+      status: "warning",
+      avgThroughput: "2,990 records/min",
+      avgLatency: "450ms",
+      successRate: 95.3,
     },
   ]
 
@@ -157,10 +228,12 @@ export function PerformanceMonitoring() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "good":
+      case "success":
         return <Badge className="bg-secondary text-secondary-foreground">Good</Badge>
       case "warning":
         return <Badge className="bg-yellow-500 text-white">Warning</Badge>
       case "critical":
+      case "error":
         return <Badge className="bg-destructive text-destructive-foreground">Critical</Badge>
       default:
         return <Badge variant="outline">Unknown</Badge>
@@ -253,6 +326,7 @@ export function PerformanceMonitoring() {
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="pipeline">Pipeline</TabsTrigger>
+          <TabsTrigger value="scheduled">Scheduled Jobs</TabsTrigger>
           <TabsTrigger value="resources">Resources</TabsTrigger>
           <TabsTrigger value="alerts">Alerts</TabsTrigger>
         </TabsList>
@@ -373,6 +447,83 @@ export function PerformanceMonitoring() {
             <CardContent>
               <div className="h-64 flex items-center justify-center text-muted-foreground border border-dashed border-border rounded">
                 Pipeline flow diagram would be displayed here
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="scheduled" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Calendar className="h-5 w-5 text-primary" />
+                Scheduled Pipeline Performance
+              </CardTitle>
+              <CardDescription>Performance metrics for automated scheduled data extractions</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {scheduledPipelinePerformance.map((pipeline) => (
+                  <div key={pipeline.id} className="p-4 rounded-lg border border-border">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <h4 className="font-medium text-foreground">{pipeline.name}</h4>
+                        {getStatusBadge(pipeline.status)}
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {pipeline.frequency}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm">
+                          <BarChart3 className="h-3 w-3" />
+                        </Button>
+                        <Button variant="outline" size="sm">
+                          <Play className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Last Run:</span>
+                        <div className="font-medium">{pipeline.lastRun}</div>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Duration:</span>
+                        <div className="font-medium">{pipeline.duration}</div>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Records:</span>
+                        <div className="font-medium">{pipeline.recordsProcessed.toLocaleString()}</div>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Success Rate:</span>
+                        <div className="font-medium">{pipeline.successRate}%</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 mt-3 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Avg Throughput:</span>
+                        <div className="font-medium">{pipeline.avgThroughput}</div>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Avg Latency:</span>
+                        <div className="font-medium">{pipeline.avgLatency}</div>
+                      </div>
+                    </div>
+
+                    {pipeline.status !== "error" && (
+                      <div className="mt-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-muted-foreground">Success Rate</span>
+                          <span className="text-xs text-muted-foreground">{pipeline.successRate}%</span>
+                        </div>
+                        <Progress value={pipeline.successRate} className="h-1" />
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             </CardContent>
           </Card>

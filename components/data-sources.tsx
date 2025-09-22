@@ -28,6 +28,9 @@ import {
   Edit,
   Trash2,
   TestTube,
+  Calendar,
+  Play,
+  Pause,
 } from "lucide-react"
 
 interface DataSource {
@@ -38,6 +41,13 @@ interface DataSource {
   lastSync: string
   recordsCount: number
   config: Record<string, any>
+  schedule?: {
+    enabled: boolean
+    frequency: "hourly" | "daily" | "weekly" | "monthly"
+    time?: string
+    days?: string[]
+    nextRun?: string
+  }
 }
 
 export function DataSources() {
@@ -50,6 +60,11 @@ export function DataSources() {
       lastSync: "2 minutes ago",
       recordsCount: 15420,
       config: { endpoint: "https://api.company.com/sales", method: "GET" },
+      schedule: {
+        enabled: true,
+        frequency: "hourly",
+        nextRun: "In 58 minutes",
+      },
     },
     {
       id: "ds-002",
@@ -59,6 +74,12 @@ export function DataSources() {
       lastSync: "15 minutes ago",
       recordsCount: 8934,
       config: { path: "/data/customers", watchMode: true },
+      schedule: {
+        enabled: true,
+        frequency: "daily",
+        time: "02:00",
+        nextRun: "Tomorrow at 2:00 AM",
+      },
     },
     {
       id: "ds-003",
@@ -68,11 +89,28 @@ export function DataSources() {
       lastSync: "2 hours ago",
       recordsCount: 0,
       config: { siteUrl: "https://company.sharepoint.com/sites/reports", library: "Documents" },
+      schedule: {
+        enabled: false,
+        frequency: "weekly",
+        days: ["Monday", "Wednesday", "Friday"],
+        time: "09:00",
+      },
     },
   ])
 
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
+  const [isScheduleDialogOpen, setIsScheduleDialogOpen] = useState(false)
   const [selectedSource, setSelectedSource] = useState<DataSource | null>(null)
+
+  const toggleSchedule = (sourceId: string) => {
+    setDataSources((prev) =>
+      prev.map((source) =>
+        source.id === sourceId
+          ? { ...source, schedule: { ...source.schedule!, enabled: !source.schedule?.enabled } }
+          : source,
+      ),
+    )
+  }
 
   const getSourceIcon = (type: string) => {
     switch (type) {
@@ -171,6 +209,23 @@ export function DataSources() {
                   <span className="text-sm text-muted-foreground">Records</span>
                   <span className="text-sm font-medium">{source.recordsCount.toLocaleString()}</span>
                 </div>
+                {source.schedule && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Schedule</span>
+                    <div className="flex items-center gap-2">
+                      <Badge variant={source.schedule.enabled ? "default" : "outline"} className="text-xs">
+                        {source.schedule.enabled ? "Active" : "Paused"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{source.schedule.frequency}</span>
+                    </div>
+                  </div>
+                )}
+                {source.schedule?.nextRun && source.schedule.enabled && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-muted-foreground">Next Run</span>
+                    <span className="text-sm font-medium">{source.schedule.nextRun}</span>
+                  </div>
+                )}
                 <div className="flex gap-2 pt-2">
                   <Button variant="outline" size="sm" className="flex-1 bg-transparent">
                     <TestTube className="mr-2 h-3 w-3" />
@@ -180,6 +235,21 @@ export function DataSources() {
                     <Edit className="mr-2 h-3 w-3" />
                     Edit
                   </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedSource(source)
+                      setIsScheduleDialogOpen(true)
+                    }}
+                  >
+                    <Calendar className="h-3 w-3" />
+                  </Button>
+                  {source.schedule && (
+                    <Button variant="outline" size="sm" onClick={() => toggleSchedule(source.id)}>
+                      {source.schedule.enabled ? <Pause className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                    </Button>
+                  )}
                   <Button variant="outline" size="sm">
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -189,6 +259,28 @@ export function DataSources() {
           )
         })}
       </div>
+
+      {/* Schedule Dialog */}
+      <Dialog open={isScheduleDialogOpen} onOpenChange={setIsScheduleDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Schedule Data Source</DialogTitle>
+            <DialogDescription>Configure automatic extraction schedule for {selectedSource?.name}</DialogDescription>
+          </DialogHeader>
+          {selectedSource && (
+            <ScheduleForm
+              source={selectedSource}
+              onClose={() => setIsScheduleDialogOpen(false)}
+              onSave={(schedule) => {
+                setDataSources((prev) =>
+                  prev.map((source) => (source.id === selectedSource.id ? { ...source, schedule } : source)),
+                )
+                setIsScheduleDialogOpen(false)
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Source Types Info */}
       <div className="grid gap-6 md:grid-cols-3">
@@ -388,6 +480,113 @@ function DataSourceForm({ onClose }: { onClose: () => void }) {
           Test Connection
         </Button>
         <Button>Create Source</Button>
+      </div>
+    </div>
+  )
+}
+
+function ScheduleForm({
+  source,
+  onClose,
+  onSave,
+}: {
+  source: DataSource
+  onClose: () => void
+  onSave: (schedule: DataSource["schedule"]) => void
+}) {
+  const [enabled, setEnabled] = useState(source.schedule?.enabled ?? false)
+  const [frequency, setFrequency] = useState(source.schedule?.frequency ?? "daily")
+  const [time, setTime] = useState(source.schedule?.time ?? "09:00")
+  const [selectedDays, setSelectedDays] = useState<string[]>(source.schedule?.days ?? [])
+
+  const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+  const handleSave = () => {
+    const schedule = {
+      enabled,
+      frequency: frequency as "hourly" | "daily" | "weekly" | "monthly",
+      time: frequency !== "hourly" ? time : undefined,
+      days: frequency === "weekly" ? selectedDays : undefined,
+      nextRun: enabled ? getNextRunTime(frequency, time, selectedDays) : undefined,
+    }
+    onSave(schedule)
+  }
+
+  const getNextRunTime = (freq: string, time: string, days: string[]) => {
+    switch (freq) {
+      case "hourly":
+        return "In 1 hour"
+      case "daily":
+        return `Tomorrow at ${time}`
+      case "weekly":
+        return `Next ${days[0]} at ${time}`
+      case "monthly":
+        return `Next month at ${time}`
+      default:
+        return "Not scheduled"
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <Label htmlFor="enabled">Enable Schedule</Label>
+        <Button variant={enabled ? "default" : "outline"} size="sm" onClick={() => setEnabled(!enabled)}>
+          {enabled ? "Enabled" : "Disabled"}
+        </Button>
+      </div>
+
+      {enabled && (
+        <>
+          <div>
+            <Label htmlFor="frequency">Frequency</Label>
+            <Select value={frequency} onValueChange={setFrequency}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="hourly">Hourly</SelectItem>
+                <SelectItem value="daily">Daily</SelectItem>
+                <SelectItem value="weekly">Weekly</SelectItem>
+                <SelectItem value="monthly">Monthly</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {frequency !== "hourly" && (
+            <div>
+              <Label htmlFor="time">Time</Label>
+              <Input id="time" type="time" value={time} onChange={(e) => setTime(e.target.value)} />
+            </div>
+          )}
+
+          {frequency === "weekly" && (
+            <div>
+              <Label>Days of Week</Label>
+              <div className="grid grid-cols-2 gap-2 mt-2">
+                {days.map((day) => (
+                  <Button
+                    key={day}
+                    variant={selectedDays.includes(day) ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => {
+                      setSelectedDays((prev) => (prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day]))
+                    }}
+                  >
+                    {day.slice(0, 3)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="flex justify-end gap-3 pt-4">
+        <Button variant="outline" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button onClick={handleSave}>Save Schedule</Button>
       </div>
     </div>
   )

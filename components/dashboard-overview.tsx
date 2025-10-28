@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
   Database,
   FileText,
@@ -19,6 +20,7 @@ import {
   Clock,
   Play,
   Pause,
+  AlertCircle,
 } from "lucide-react"
 import { useDashboardStats, useRecentJobs, useScheduledPipelines, useSystemHealth } from "@/hooks/use-api"
 import { apiService } from "@/lib/api"
@@ -30,9 +32,8 @@ export function DashboardOverview() {
   const { data: scheduledPipelines, error: pipelinesError, isLoading: pipelinesLoading } = useScheduledPipelines()
   const { data: systemHealth, error: healthError, isLoading: healthLoading } = useSystemHealth()
 
-  if (statsError || jobsError || pipelinesError || healthError) {
-    console.log("[v0] API errors detected:", { statsError, jobsError, pipelinesError, healthError })
-  }
+  const apiUnavailable =
+    !stats?.success || !recentJobs?.success || !scheduledPipelines?.success || !systemHealth?.success
 
   const handleToggleSchedule = async (pipelineId: string) => {
     try {
@@ -81,7 +82,36 @@ export function DashboardOverview() {
           color: "text-secondary",
         },
       ]
-    : []
+    : [
+        {
+          name: "Total Data Sources",
+          value: "12",
+          change: "+2 from last month",
+          icon: Database,
+          color: "text-primary",
+        },
+        {
+          name: "Files Processed Today",
+          value: "1,247",
+          change: "+12% from yesterday",
+          icon: FileText,
+          color: "text-secondary",
+        },
+        {
+          name: "Active Errors",
+          value: "3",
+          change: "-5 from yesterday",
+          icon: AlertTriangle,
+          color: "text-destructive",
+        },
+        {
+          name: "Success Rate",
+          value: "98.7%",
+          change: "+0.3% from last week",
+          icon: CheckCircle,
+          color: "text-secondary",
+        },
+      ]
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -128,6 +158,16 @@ export function DashboardOverview() {
           </Button>
         </div>
       </div>
+
+      {apiUnavailable && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Unable to connect to the FastAPI backend. Please ensure your FastAPI server is running and the
+            NEXT_PUBLIC_API_URL environment variable is set correctly. Displaying sample data for demonstration.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Stats Grid */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">

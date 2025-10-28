@@ -40,7 +40,11 @@ class ApiService {
       return data
     } catch (error) {
       console.error(`API request failed: ${endpoint}`, error)
-      throw error
+      return {
+        data: null as any,
+        success: false,
+        message: `Failed to fetch ${endpoint}. Please ensure your FastAPI backend is running and NEXT_PUBLIC_API_URL is set correctly.`,
+      }
     }
   }
 

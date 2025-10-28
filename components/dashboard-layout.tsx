@@ -6,7 +6,19 @@ import { usePathname } from "next/navigation"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Database, FileText, Settings, Activity, AlertTriangle, BarChart3, Menu, X, Bell, User } from "lucide-react"
+import {
+  Database,
+  FileText,
+  Settings,
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  Menu,
+  X,
+  Bell,
+  User,
+  DollarSign,
+} from "lucide-react"
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -33,6 +45,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       current: pathname === "/anomaly-detection",
     },
     { name: "Performance", icon: BarChart3, href: "/performance", current: pathname === "/performance" },
+    { name: "Consumption", icon: DollarSign, href: "/consumption", current: pathname === "/consumption" },
     { name: "Settings", icon: Settings, href: "/settings", current: pathname === "/settings" },
   ]
 

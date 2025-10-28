@@ -19,6 +19,7 @@ import {
 } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { TrendingUp, Database, DollarSign, Zap } from "lucide-react"
+import { ConsumptionChatbot } from "@/components/consumption-chatbot"
 
 export default function ConsumptionPage() {
   const dataSourceColors = {
@@ -189,6 +190,14 @@ export default function ConsumptionPage() {
             <p className="text-xs text-muted-foreground">Month-over-month</p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Chatbot Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2">{/* Charts will go here */}</div>
+        <div className="h-[600px]">
+          <ConsumptionChatbot />
+        </div>
       </div>
 
       {/* Charts */}
